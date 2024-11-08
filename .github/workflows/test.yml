@@ -17,6 +17,9 @@ jobs:
       - name: Run action
         id: build
         uses: ./
+        with:
+          option_arch: znver2
+          option_tune: znver2
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

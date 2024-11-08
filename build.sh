@@ -302,7 +302,12 @@ SHA=()
 COMPRESS_FILE_NAME=
 
 CFLAGS="-I${install_dir}/include"
-CFLAGS+=" -march=znver2 -mtune=znver2"
+if [[ -n "${option_arch}" ]]; then
+    CFLAGS+=" -march=${option_arch}"
+fi
+if [[ -n "${option_tune}" ]]; then
+    CFLAGS+=" -mtune=${option_tune}"
+fi
 CFLAGS+=" -mtls-dialect=gnu2"
 CFLAGS+=" -maccumulate-outgoing-args -mno-push-args"
 CFLAGS+=" -mno-red-zone"
@@ -334,7 +339,9 @@ CFLAGS+=" -ftree-vectorize -fvect-cost-model=unlimited -fsimd-cost-model=unlimit
 CFLAGS+=" -fvariable-expansion-in-unroller"
 CFLAGS+=" -ftrivial-auto-var-init=zero"
 CFLAGS+=" -fzero-call-used-regs=used-gpr"
-CFLAGS+=" -fopenmp"
+if [[ -n "${option_openmp}" && "${option_openmp}" == "true" ]]; then
+    CFLAGS+=" -fopenmp"
+fi
 CFLAGS+=" -Wa,-O2,--64,-acdn,-no-pad-sections,--strip-local-absolute"
 CFLAGS+=" --param gcse-unrestricted-cost=0 --param max-gcse-memory=2147483647"
 CFLAGS+=" --param max-hoist-depth=0"
@@ -373,13 +380,16 @@ LDFLAGS+=",-z,notext"
 LDFLAGS+=",-z,now"
 LDFLAGS+=",-z,relro"
 LDFLAGS+=",-z,start-stop-visibility=hidden"
-LDFLAGS+=" -L${install_dir}/lib -lrt -lgomp"
+LDFLAGS+=" -L${install_dir}/lib -lrt"
+if [[ -n "${option_openmp}" && "${option_openmp}" == "true" ]]; then
+    LDFLAGS+=" -lgomp"
+fi
 export CFLAGS
 export CXXFLAGS
 export LDFLAGS
 
 while IFS= read -r file; do
-    ln -sf "${file}"  "${file%-*}"
+    ln -sf "${file}" "${file%-*}"
 done < <(find /usr/bin -type l -name "*-14")
 
 mkdir -p "${build_temp}"
