@@ -6,8 +6,8 @@ __compress() {
     XZ_OPT="-9T $(nproc)" tar --preserve-permissions -Jcf "${@}"
 }
 
-__sha256() {
-    echo -n "${1}" | sed 's/[[:space:]]//g' | sha256sum | awk '{print $1;}'
+__crc() {
+    echo -n "${1}" | cksum -z | awk '{printf("%X", $1);}'
 }
 
 __curl_base() {
@@ -23,13 +23,13 @@ __curl_github_raw() {
 }
 
 __curl_sha_github() {
-    local -i _code=1
-    if _sha=$(__curl_base "https://github.com/${1}/commits/${2}/" | grep -o '"currentOid":"[^"]*' | grep -o '[^"]*$'); then
-        if [[ ${#_sha} == 40 ]]; then
-            _code=0
+    local -i __code=1
+    if __sha=$(__curl_base "https://github.com/${1}/commits/${2}/" | grep -o '"currentOid":"[^"]*' | grep -o '[^"]*$'); then
+        if [[ ${#__sha} == 40 ]]; then
+            __code=0
         fi
     fi
-    return ${_code}
+    return ${__code}
 }
 
 __git_clone() {
@@ -46,10 +46,12 @@ __git_clone() {
 }
 
 __git_github() {
-    local _sha
+    local __sha
     __git_clone "https://github.com/${1}.git" "${2}" "${3}"
     __curl_sha_github "${1}" "${2}"
-    SHA+=("${_sha}")
+    if [[ ${COMMIT_LIST[*]/${__sha}/} == "${COMMIT_LIST[*]}" ]]; then
+        COMMIT_LIST+=("${3}@${__sha}")
+    fi
 }
 
 __compile_cmake() {
@@ -57,7 +59,7 @@ __compile_cmake() {
     local __param
     for __param in "${@}"; do
         local __r="${__param}"
-        if [[ "${__param//[[:space:]]/}" != "${__param}" ]]; then
+        if [[ ${__param//[[:space:]]/} != "${__param}" ]]; then
             __r=$(echo "${__param}" | sed -E "s/\s+$//g;s/(-[^=]+=)\s*(.*)/\1'\2'/g")
         fi
         __cmake_flags+=("${__r}")
@@ -65,35 +67,48 @@ __compile_cmake() {
     __cmake_flags+=(
         "-DBUILD_SHARED_LIBS=OFF"
         "-DCMAKE_BUILD_TYPE=Release"
-        "-DCMAKE_INSTALL_PREFIX=${install_dir}"
+        "-DCMAKE_INSTALL_PREFIX=${__install_dir}"
     )
     local __build_temp_dir="objs"
+    if [[ -d "${__build_temp_dir}" ]]; then
+        rm -rf "${__build_temp_dir}"
+    fi
     cmake -B "${__build_temp_dir}" "${__cmake_flags[@]}"
     cmake --build "${__build_temp_dir}" --config Release --target install/strip -j "$(nproc)"
 }
 
 compile_jemalloc() {
     local name="jemalloc"
-    __git_github "jemalloc/jemalloc" "dev" ${name}
+    if [[ ! -d ${name} ]]; then
+        __git_github "jemalloc/jemalloc" "dev" ${name}
+    fi
     pushd ${name} >/dev/null
-    ./autogen.sh \
-        --prefix="${install_dir}" \
+    if [[ -f "Makefile" ]]; then
+        make relclean
+    fi
+    local __cflags="-Wno-discarded-qualifiers"
+    __cflags+=" ${CFLAGS}"
+    CFLAGS="${__cflags}" ./autogen.sh \
+        --prefix="${__install_dir}" \
         --disable-cxx \
         --disable-doc \
-        --disable-prof-gcc \
+        --disable-libdl \
         --disable-prof-libgcc \
+        --disable-prof-gcc \
         --disable-shared \
         --disable-stats \
         --enable-pageid
     make -j "$(nproc)"
     make install_include install_lib
     popd >/dev/null
-    LDFLAGS+=" -l${name}"
+    __ldflags+=" -l${name}"
 }
 
 compile_zlib() {
     local name="zlib"
-    __git_github "zlib-ng/zlib-ng" "develop" ${name}
+    if [[ ! -d ${name} ]]; then
+        __git_github "zlib-ng/zlib-ng" "develop" ${name}
+    fi
     pushd ${name} >/dev/null
     __compile_cmake \
         -DZLIB_ENABLE_TESTS=OFF \
@@ -107,7 +122,9 @@ compile_zlib() {
 
 compile_brotli() {
     local name="brotli"
-    __git_github "google/brotli" "master" ${name}
+    if [[ ! -d ${name} ]]; then
+        __git_github "google/brotli" "master" ${name}
+    fi
     pushd ${name} >/dev/null
     __compile_cmake \
         -DBROTLI_BUILD_TOOLS=OFF \
@@ -119,7 +136,9 @@ compile_brotli() {
 
 compile_zstd() {
     local name="zstd"
-    __git_github "facebook/zstd" "dev" ${name}
+    if [[ ! -d ${name} ]]; then
+        __git_github "facebook/zstd" "dev" ${name}
+    fi
     pushd ${name} >/dev/null
     __compile_cmake \
         -S "build/cmake" \
@@ -131,25 +150,40 @@ compile_zstd() {
 
 compile_pcre() {
     local name="pcre"
-    __git_github "PCRE2Project/pcre2" "master" ${name}
+    if [[ ! -d ${name} ]]; then
+        __git_github "PCRE2Project/pcre2" "master" ${name}
+    fi
     pushd ${name} >/dev/null
     __compile_cmake \
         -DPCRE2_SUPPORT_JIT=ON \
         -DPCRE2_SUPPORT_JIT_SEALLOC=ON \
         -DPCRE2_BUILD_TESTS=OFF \
         -DPCRE2_BUILD_PCRE2GREP=OFF \
-        -DPCRE2_STATIC_PIC=ON \
+        -DPCRE2_STATIC_PIC=OFF \
         -DPCRE2_LINK_SIZE=4
     popd >/dev/null
 }
 
 compile_openssl() {
     local name="openssl"
-    __git_github "openssl/openssl" "master" ${name}
+    if [[ ! -d ${name} ]]; then
+        __git_github "openssl/openssl" "master" ${name}
+    fi
     pushd ${name} >/dev/null
-    CFLAGS="-O3 ${CFLAGS}" ./config \
-        -DOPENSSL_TLS_SECURITY_LEVEL=3 \
-        --prefix="${install_dir}" --libdir=lib -static \
+    if [[ -f "Makefile" ]]; then
+        make clean
+    fi
+    local __cflags
+    __cflags="-Ofast -std=gnu17"
+    __cflags+=" ${CFLAGS}"
+    __cflags+=" -Wno-stringop-overflow"
+    __cflags+=" -DOPENSSL_TLS_SECURITY_LEVEL=3"
+    __cflags+=" -UDSO_DLFCN"
+    CFLAGS="${__cflags}" ./config \
+        -static \
+        --prefix="${__install_dir}" \
+        --libdir=lib \
+        --openssldir="${prefix_root}/ssl" \
         --release \
         --api=3.0.0 no-deprecated \
         enable-ec_nistp_64_gcc_128 \
@@ -159,6 +193,7 @@ compile_openssl() {
         enable-zlib enable-zlib-dynamic \
         enable-zstd enable-zstd-dynamic \
         no-shared no-pinshared \
+        no-asm \
         no-apps \
         no-docs no-tests \
         no-legacy \
@@ -193,31 +228,39 @@ compile_openssl() {
 
 __add_ngx_module_http_trim_filter() {
     local name="ngx_trim"
-    local __repo="alibaba/tengine"
-    local __repo_branche="master"
-    local __repo_path="modules/ngx_http_trim_filter_module"
-    __curl_github_raw "${__repo}" "${__repo_branche}" "${__repo_path}/config" "${name}/config"
-    __curl_github_raw "${__repo}" "${__repo_branche}" "${__repo_path}/ngx_http_trim_filter_module.c" "${name}/ngx_http_trim_filter_module.c"
+    if [[ ! -d ${name} ]]; then
+        local __repo="alibaba/tengine"
+        local __repo_branche="master"
+        local __repo_path="modules/ngx_http_trim_filter_module"
+        __curl_github_raw "${__repo}" "${__repo_branche}" "${__repo_path}/config" "${name}/config"
+        __curl_github_raw "${__repo}" "${__repo_branche}" "${__repo_path}/ngx_http_trim_filter_module.c" "${name}/ngx_http_trim_filter_module.c"
+    fi
     __ngx_module+=("--add-module=../${name}")
 }
 
 __add_ngx_module_headers_more() {
     local name="ngx_headers_more"
-    __git_github "openresty/headers-more-nginx-module" "master" ${name}
+    if [[ ! -d ${name} ]]; then
+        __git_github "openresty/headers-more-nginx-module" "master" ${name}
+    fi
     __ngx_module+=("--add-module=../${name}")
 }
 
 __add_ngx_module_brotli() {
     local name="ngx_brotli"
-    __git_github "google/ngx_brotli" "master" ${name}
-    rm -rf "${build_temp}/${name}/deps/brotli"
-    ln -s "${build_temp}/brotli/" "${build_temp}/${name}/deps/brotli"
+    if [[ ! -d ${name} ]]; then
+        __git_github "google/ngx_brotli" "master" ${name}
+        rm -rf "${__build_temp}/${name}/deps/brotli"
+        ln -s "${__build_temp}/brotli/" "${__build_temp}/${name}/deps/brotli"
+    fi
     __ngx_module+=("--add-module=../${name}")
 }
 
 __add_ngx_module_zstd() {
     local name="ngx_zstd"
-    __git_github "web-ngx/ngx_zstd" "master" ${name}
+    if [[ ! -d ${name} ]]; then
+        __git_github "web-ngx/ngx_zstd" "master" ${name}
+    fi
     __ngx_module+=("--add-module=../${name}")
 }
 
@@ -228,28 +271,45 @@ compile_ngx() {
     __add_ngx_module_zstd
     __add_ngx_module_brotli
     local name="nginx"
-    local install_dir="/opt"
-    local __prefix="${install_dir}/${name}"
+    local __prefix="${prefix_root}/${name}"
+    local __pid_path="/run/${name}.pid"
     local __ngx_user="nobody"
     local __ngx_group="nogroup"
-    COMPRESS_FILE_NAME="${name}.tar.xz"
-    __git_github "web-ngx/nginx" "modify" ${name}
+    if [[ ! -d ${name} ]]; then
+        __git_github "web-ngx/nginx" "modify" ${name}
+    fi
     pushd ${name} >/dev/null
+    if [[ ${BUILD_STEP} == "PROFILE_USE" ]]; then
+        if [[ -f "Makefile" ]]; then
+            make clean
+        fi
+        rm -rf "${__prefix}"
+    fi
+    local __cflags __ldflags
+    __cflags="-Ofast"
+    __cflags+=" ${CFLAGS}"
+    __cflags+=" -flto=auto -flto-partition=one -ffat-lto-objects"
+    __cflags+=" -fweb -fwhole-program"
+    __cflags+=" -ffreestanding"
+    __cflags+=" -DNGX_HAVE_DLOPEN=0"
+    __ldflags="-no-pie"
+    __ldflags+=" -static -static-libgcc -static-libstdc++"
+    __ldflags+=" ${LDFLAGS}"
     sed -i '/ngx_write_stderr("configure arguments:" NGX_CONFIGURE NGX_LINEFEED);/d' src/core/nginx.c
-    CFLAGS="-Ofast ${CFLAGS}" ./auto/configure \
+    BUILD_HASH="$(__crc "${COMMIT_LIST[*]}")"
+    CFLAGS="${__cflags}" ./auto/configure \
+        --build="${BUILD_HASH}" \
         --prefix="${__prefix}" \
         --user="${__ngx_user}" \
         --group="${__ngx_group}" \
         --lock-path="/var/lock/${name}.lock" \
-        --pid-path="/run/${name}.pid" \
+        --pid-path="${__pid_path}" \
         --http-client-body-temp-path="tmp/body" \
-        --http-proxy-temp-path="tmp/proxy" \
         --http-fastcgi-temp-path="tmp/fastcgi" \
-        --http-uwsgi-temp-path="tmp/uwsgi" \
+        --http-proxy-temp-path="tmp/proxy" \
         --http-scgi-temp-path="tmp/scgi" \
-        --with-cc=gcc \
-        --with-cc-opt="-fweb -fwhole-program -flto=auto -flto-partition=one -ffat-lto-objects -fPIC" \
-        --with-ld-opt="-pie ${LDFLAGS}" \
+        --http-uwsgi-temp-path="tmp/uwsgi" \
+        --with-ld-opt="${__ldflags}" \
         --with-compat \
         --with-file-aio \
         --with-threads \
@@ -266,11 +326,15 @@ compile_ngx() {
         --with-http_ssl_module \
         --with-http_v2_module \
         --with-http_v3_module \
+        --with-ipv6 \
+        --with-stream \
+        --with-stream_realip_module \
+        --with-stream_ssl_module \
+        --with-stream_ssl_preread_module \
         --without-poll_module \
         --without-select_module \
         --without-http_access_module \
         --without-http_autoindex_module \
-        --without-http_empty_gif_module \
         --without-http_geo_module \
         --without-http_fastcgi_module \
         --without-http_uwsgi_module \
@@ -281,130 +345,485 @@ compile_ngx() {
         "${__ngx_module[@]}"
     make -j "$(nproc)"
     make install
-    popd >/dev/null
     if [[ ! -d "${__prefix}/tmp" ]]; then
         mkdir -p "${__prefix}/tmp"
     fi
-    __sha256 "${SHA[*]}" >"${__prefix}/build.sha"
-    echo "build_sha=$(cat "${__prefix}/build.sha")" >>"${GITHUB_OUTPUT}"
+    ngx_config
     chown -R "${__ngx_user}:${__ngx_group}" "${__prefix}"
-    pushd "${install_dir}" >/dev/null
-    __compress "${wk_path}/${COMPRESS_FILE_NAME}" "${name}"
+    if [[ ${BUILD_STEP} == "PROFILE_GEN" ]]; then
+        __ngx_config_test
+    fi
+    popd >/dev/null
+    if [[ ${BUILD_STEP} == "PROFILE_USE" ]]; then
+        pushd "${prefix_root}" >/dev/null
+        COMPRESS_FILE_NAME="${name}.tar.xz"
+        __compress "${WORKSPACE}/${COMPRESS_FILE_NAME}" "${name}" "ssl"
+        popd >/dev/null
+    fi
+}
+
+__compile_flags() {
+    local option_arch="${option_arch:-}"
+    local option_tune="${option_tune:-}"
+    local option_openmp="${option_openmp:-}"
+    local option_mold="${option_mold:-}"
+    if [[ ${BUILD_STEP} == "PROFILE_USE" ]]; then
+        if [[ -n ${option_arch} ]]; then
+            CFLAGS+=" -march=${option_arch}"
+        fi
+        if [[ -n ${option_tune} ]]; then
+            CFLAGS+=" -mtune=${option_tune}"
+        fi
+    fi
+    __cflags+=" -mtls-dialect=gnu2"
+    __cflags+=" -maccumulate-outgoing-args -mno-push-args"
+    __cflags+=" -mno-red-zone"
+    __cflags+=" -Wa,-O2,-momit-lock-prefix=yes,-no-pad-sections,--noexecstack,--strip-local-absolute"
+    __cflags+=" -fgcse -fgcse-lm -fgcse-sm -fgcse-las -fgcse-after-reload"
+    __cflags+=" -fmodulo-sched -fmodulo-sched-allow-regmoves"
+    __cflags+=" -fexcess-precision=fast"
+    __cflags+=" -fmerge-all-constants"
+    __cflags+=" -fforce-addr"
+    __cflags+=" -fipa-pta"
+    __cflags+=" -fira-region=one"
+    __cflags+=" -fivopts"
+    __cflags+=" -ftracer"
+    __cflags+=" -fvariable-expansion-in-unroller"
+    __cflags+=" -fvect-cost-model=unlimited -fsimd-cost-model=unlimited"
+    __cflags+=" -ftree-vectorize"
+    __cflags+=" -fdevirtualize-at-ltrans"
+    __cflags+=" -fgraphite -fgraphite-identity"
+    __cflags+=" -freg-struct-return"
+    __cflags+=" -frename-registers"
+    __cflags+=" -finhibit-size-directive"
+    __cflags+=" -fstdarg-opt"
+    __cflags+=" -ffunction-sections -fdata-sections"
+    __cflags+=" -fvisibility=hidden"
+    __cflags+=" -fomit-frame-pointer"
+    __cflags+=" -flimit-function-alignment"
+    __cflags+=" -fdelete-null-pointer-checks"
+    __cflags+=" -fno-bounds-check"
+    __cflags+=" -fno-stack-check"
+    __cflags+=" -fno-stack-protector"
+    __cflags+=" -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-jump-tables"
+    __cflags+=" -fno-exceptions -fdelete-dead-exceptions"
+    __cflags+=" -fno-math-errno"
+    __cflags+=" -fno-semantic-interposition"
+    __cflags+=" -fno-var-tracking-assignments"
+    __cflags+=" -fno-printf-return-value"
+    __cflags+=" -fno-plt"
+    __cflags+=" -fno-sanitize=all"
+    __cflags+=" -U_FORTIFY_SOURCE"
+    __cflags+=" --param gcse-unrestricted-cost=0 --param max-gcse-memory=2147483647"
+    __cflags+=" --param max-variable-expansions-in-unroller=100"
+    __cxxflags+=" -fsection-anchors"
+    __cxxflags+=" -fvisibility-inlines-hidden"
+    __cxxflags+=" -fno-rtti"
+    __cxxflags+=" -fno-enforce-eh-specs"
+    if [[ -n ${option_mold} ]]; then
+        __ldflags+=" -fuse-ld=mold"
+    fi
+    __ldflags+=" -fuse-linker-plugin"
+    __ldflags+=" -Wl,-O2"
+    __ldflags+=",--strip-all,--discard-all"
+    __ldflags+=",--as-needed"
+    __ldflags+=",--exclude-libs=ALL"
+    __ldflags+=",--gc-sections"
+    __ldflags+=",--hash-style=gnu"
+    __ldflags+=",--sort-common"
+    __ldflags+=",--sort-section,alignment"
+    __ldflags+=",--no-eh-frame-hdr"
+    if [[ -z ${option_mold} ]]; then
+        __ldflags+=",--no-ctf-variables"
+        __ldflags+=",--no-ld-generated-unwind-info"
+    fi
+    __ldflags+=",--no-undefined"
+    __ldflags+=",--no-whole-archive"
+    __ldflags+=",-z,start-stop-visibility=hidden"
+    __ldflags+=",-z,combreloc"
+    if [[ ${BUILD_STEP} == "PROFILE_USE" ]]; then
+        __ldflags+=",-z,nodelete"
+        __ldflags+=",-z,nodlopen"
+        __ldflags+=",-z,nodump"
+    fi
+    __ldflags+=",-z,noseparate-code"
+}
+
+compile() {
+    if [[ ${BUILD_STEP} == "PROFILE_GEN" ]]; then
+        if [[ -d ${__build_temp} ]]; then
+            rm -rf "${__build_temp}"
+        fi
+        mkdir -p "${__build_temp}"
+    fi
+    pushd "${__build_temp}" >/dev/null
+    local __cflags __cxxflags __ldflags __libs
+    __cflags+="${CFLAGS}"
+    __cxxflags+="${CXXFLAGS}"
+    __ldflags+="${LDFLAGS}"
+    __compile_flags
+    __cflags="$(echo "${__cflags} -I\"${__install_dir}/include\"" | sed -E 's/^\s+|\s+$//g')"
+    __cxxflags="$(echo "${__cxxflags} -I\"${__install_dir}/include\"" | sed -E 's/^\s+|\s+$//g')"
+    __ldflags="$(echo "${__ldflags} -L\"${__install_dir}/lib\"" | sed -E 's/^\s+|\s+$//g')"
+    CFLAGS="${__cflags}" CXXFLAGS="${__cxxflags}" LDFLAGS="${__ldflags}" compile_jemalloc
+    CFLAGS="${__cflags}" CXXFLAGS="${__cxxflags}" LDFLAGS="${__ldflags}" compile_zlib
+    CFLAGS="${__cflags}" CXXFLAGS="${__cxxflags}" LDFLAGS="${__ldflags}" compile_brotli
+    CFLAGS="${__cflags}" CXXFLAGS="${__cxxflags}" LDFLAGS="${__ldflags}" compile_zstd
+    CFLAGS="${__cflags}" CXXFLAGS="${__cxxflags}" LDFLAGS="${__ldflags}" compile_pcre
+    CFLAGS="${__cflags}" CXXFLAGS="${__cxxflags}" LDFLAGS="${__ldflags}" compile_openssl
+    CFLAGS="${__cflags}" CXXFLAGS="${__cxxflags}" LDFLAGS="${__ldflags}" compile_ngx
     popd >/dev/null
 }
 
-wk_path=$(pwd)
-temp_path=/tmp
-build_temp=${temp_path}/build_temp
-install_dir=${build_temp}/install
+build() {
+    local CFLAGS CXXFLAGS LDFLAGS
+    local __profile_dir="/tmp/profile"
+    local __build_temp="/tmp/build"
+    local __install_dir="${__build_temp}/install"
+    case "${BUILD_STEP:-}" in
+        "PROFILE_GEN")
+            if [[ -d ${__profile_dir} ]]; then
+                rm -rf "${__profile_dir}"
+            fi
+            CFLAGS+=" -fprofile-generate=${__profile_dir}"
+            CXXFLAGS+=" -fprofile-generate=${__profile_dir}"
+            LDFLAGS+=" -fprofile-generate=${__profile_dir}"
+            CFLAGS="${CFLAGS}" CXXFLAGS="${CXXFLAGS}" LDFLAGS="${LDFLAGS}" compile
+            BUILD_STEP="PROFILE_USE" build
+            ;;
+        "PROFILE_USE")
+            rm -rf "${__install_dir}"
+            CFLAGS+=" -fprofile-use=${__profile_dir} -fprofile-correction -Wno-coverage-mismatch -Wno-missing-profile"
+            CXXFLAGS+=" -fprofile-use=${__profile_dir} -fprofile-correction -Wno-coverage-mismatch -Wno-missing-profile"
+            LDFLAGS+=" -fprofile-use=${__profile_dir} -fprofile-correction -Wno-coverage-mismatch -Wno-missing-profile"
+            CFLAGS="${CFLAGS}" CXXFLAGS="${CXXFLAGS}" LDFLAGS="${LDFLAGS}" compile
+            ;;
+        *)
+            BUILD_STEP="PROFILE_GEN" build
+            ;;
+    esac
+}
 
-SHA=()
-COMPRESS_FILE_NAME=
+__write_line() {
+    if [[ -n ${1:-} ]]; then
+        __context+="${1}"
+    fi
+    __context+="\n"
+}
 
-CFLAGS="-I${install_dir}/include"
-if [[ -n "${option_arch}" ]]; then
-    CFLAGS+=" -march=${option_arch}"
-fi
-if [[ -n "${option_tune}" ]]; then
-    CFLAGS+=" -mtune=${option_tune}"
-fi
-CFLAGS+=" -mtls-dialect=gnu2"
-CFLAGS+=" -maccumulate-outgoing-args -mno-push-args"
-CFLAGS+=" -mno-red-zone"
-CFLAGS+=" -fshort-wchar -funsigned-char"
-CFLAGS+=" -ffast-math -funsafe-math-optimizations -fno-math-errno -fno-trapping-math"
-CFLAGS+=" -fgcse -fgcse-lm -fgcse-sm -fgcse-las -fgcse-after-reload"
-CFLAGS+=" -fno-exceptions -fdelete-dead-exceptions"
-CFLAGS+=" -ffunction-sections -fdata-sections -fvisibility=hidden"
-CFLAGS+=" -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-jump-tables"
-CFLAGS+=" -fmodulo-sched -fmodulo-sched-allow-regmoves"
-CFLAGS+=" -fno-common -fno-plt"
-CFLAGS+=" -fno-sanitize=all"
-CFLAGS+=" -fno-semantic-interposition"
-CFLAGS+=" -fno-stack-check"
-CFLAGS+=" -fno-stack-protector"
-CFLAGS+=" -fno-stack-clash-protection"
-CFLAGS+=" -fno-var-tracking-assignments"
-CFLAGS+=" -freg-struct-return"
-CFLAGS+=" -finhibit-size-directive"
-CFLAGS+=" -fomit-frame-pointer"
-CFLAGS+=" -frename-registers"
-CFLAGS+=" -fgraphite-identity -floop-nest-optimize -ftree-loop-linear -floop-strip-mine"
-CFLAGS+=" -fdevirtualize-at-ltrans"
-CFLAGS+=" -fforce-addr"
-CFLAGS+=" -ftracer"
-CFLAGS+=" -fivopts"
-CFLAGS+=" -fipa-pta"
-CFLAGS+=" -ftree-vectorize -fvect-cost-model=unlimited -fsimd-cost-model=unlimited"
-CFLAGS+=" -fvariable-expansion-in-unroller"
-CFLAGS+=" -ftrivial-auto-var-init=zero"
-CFLAGS+=" -fzero-call-used-regs=used-gpr"
-if [[ -n "${option_openmp}" && "${option_openmp}" == "true" ]]; then
-    CFLAGS+=" -fopenmp"
-fi
-CFLAGS+=" -Wa,-O2,--64,-acdn,-no-pad-sections,--strip-local-absolute"
-CFLAGS+=" --param gcse-unrestricted-cost=0 --param max-gcse-memory=2147483647"
-CFLAGS+=" --param max-hoist-depth=0"
-CFLAGS+=" --param max-partial-antic-length=0"
-CFLAGS+=" --param max-isl-operations=0"
-CFLAGS+=" --param max-vartrack-size=0"
-CXXFLAGS="${CFLAGS}"
-CXXFLAGS+=" -fno-rtti"
-CXXFLAGS+=" -fsection-anchors"
-CXXFLAGS+=" -fvisibility-inlines-hidden"
-CXXFLAGS+=" -fno-enforce-eh-specs"
-CXXFLAGS+=" -fno-module-lazy"
-CXXFLAGS+=" -fnothrow-opt"
-CXXFLAGS+=" -faligned-new"
-LDFLAGS="-fuse-ld=mold -fuse-linker-plugin"
-LDFLAGS+=" -static -static-libgcc -static-libstdc++"
-LDFLAGS+=" -Wl,-O2,-s,-x,-X"
-LDFLAGS+=",--gc-sections"
-LDFLAGS+=",--as-needed"
-LDFLAGS+=",--sort-common"
-LDFLAGS+=",--exclude-libs=ALL"
-LDFLAGS+=",--hash-style=gnu"
-LDFLAGS+=",--no-build-id"
-LDFLAGS+=",--no-detach"
-LDFLAGS+=",--no-eh-frame-hdr"
-LDFLAGS+=",--no-undefined"
-LDFLAGS+=",--demangle"
-LDFLAGS+=",--icf=all,--ignore-data-address-equality"
-LDFLAGS+=",--relocatable-merge-sections"
-LDFLAGS+=",-z,nocopyreloc"
-LDFLAGS+=",-z,nokeep-text-section-prefix"
-LDFLAGS+=",-z,nosectionheader"
-LDFLAGS+=",-z,nodlopen"
-LDFLAGS+=",-z,nodump"
-LDFLAGS+=",-z,notext"
-LDFLAGS+=",-z,now"
-LDFLAGS+=",-z,relro"
-LDFLAGS+=",-z,start-stop-visibility=hidden"
-LDFLAGS+=" -L${install_dir}/lib -lrt"
-if [[ -n "${option_openmp}" && "${option_openmp}" == "true" ]]; then
-    LDFLAGS+=" -lgomp"
-fi
-export CFLAGS
-export CXXFLAGS
-export LDFLAGS
+__ngx_config_write() {
+    local __str=${1:-}
+    if [[ ${__str: -1} == "}" ]]; then
+        __level=$((__level - 1))
+    fi
+    if [[ ${__level} -gt 0 ]]; then
+        if [[ -n ${__str} ]]; then
+            __context+=$(eval "printf ' %.0s' {1..$((__level * 4))}")
+        fi
+    fi
+    __write_line "${__str}"
+    if [[ ${__str: -1} == "{" ]]; then
+        __level=$((__level + 1))
+    fi
+}
 
-while IFS= read -r file; do
-    ln -sf "${file}" "${file%-*}"
-done < <(find /usr/bin -type l -name "*-14")
+__ngx_config_index() {
+    local -i __level=0
+    local __context
+    __ngx_config_write "user ${__ngx_user} ${__ngx_group};"
+    __ngx_config_write
+    __ngx_config_write "worker_processes auto;"
+    __ngx_config_write "worker_cpu_affinity auto;"
+    __ngx_config_write "worker_priority -20;"
+    __ngx_config_write "worker_rlimit_nofile 262140;"
+    __ngx_config_write "worker_shutdown_timeout 5s;"
+    __ngx_config_write
+    __ngx_config_write "pid ${__pid_path};"
+    __ngx_config_write
+    __ngx_config_write "thread_pool default threads=16 max_queue=65536;"
+    __ngx_config_write
+    __ngx_config_write "error_log logs/error.log emerg;"
+    __ngx_config_write
+    __ngx_config_write "pcre_jit on;"
+    __ngx_config_write "quic_bpf on;"
+    __ngx_config_write
+    __ngx_config_write "timer_resolution 500ms;"
+    __ngx_config_write
+    __ngx_config_write "events {"
+    __ngx_config_write "use epoll;"
+    __ngx_config_write "multi_accept on;"
+    __ngx_config_write "worker_connections 1024;"
+    __ngx_config_write "worker_aio_requests 256;"
+    __ngx_config_write "accept_mutex on;"
+    __ngx_config_write "accept_mutex_delay 50ms;"
+    __ngx_config_write "}"
+    __ngx_config_write
+    __ngx_config_write "http {"
+    __ngx_config_write "charset utf-8;"
+    __ngx_config_write
+    __ngx_config_write "include mime.types;"
+    __ngx_config_write "default_type application/octet-stream;"
+    __ngx_config_write
+    __ngx_config_write "merge_slashes off;"
+    __ngx_config_write
+    __ngx_config_write "log_not_found off;"
+    __ngx_config_write
+    __ngx_config_write "aio threads=default;"
+    __ngx_config_write "aio_write on;"
+    __ngx_config_write
+    __ngx_config_write "tcp_nopush on;"
+    __ngx_config_write "tcp_nodelay on;"
+    __ngx_config_write
+    __ngx_config_write "reset_timedout_connection on;"
+    __ngx_config_write
+    __ngx_config_write "sendfile on;"
+    __ngx_config_write "sendfile_max_chunk 512k;"
+    __ngx_config_write
+    __ngx_config_write "send_timeout 10s;"
+    __ngx_config_write
+    __ngx_config_write "connection_pool_size 4k;"
+    __ngx_config_write "request_pool_size 32k;"
+    __ngx_config_write
+    __ngx_config_write "directio 4m;"
+    __ngx_config_write "directio_alignment 4k;"
+    __ngx_config_write
+    __ngx_config_write "server_names_hash_max_size 2048;"
+    __ngx_config_write "server_names_hash_bucket_size 128;"
+    __ngx_config_write "types_hash_max_size 2048;"
+    __ngx_config_write "types_hash_bucket_size 128;"
+    __ngx_config_write "variables_hash_max_size 2048;"
+    __ngx_config_write "variables_hash_bucket_size 128;"
+    __ngx_config_write "output_buffers 8 256k;"
+    __ngx_config_write
+    __ngx_config_write "client_body_buffer_size 32k;"
+    __ngx_config_write "client_body_timeout 5s;"
+    __ngx_config_write "client_header_buffer_size 8k;"
+    __ngx_config_write "client_header_timeout 5s;"
+    __ngx_config_write "client_max_body_size 1024m;"
+    __ngx_config_write "large_client_header_buffers 4 32k;"
+    __ngx_config_write
+    __ngx_config_write "postpone_output 0;"
+    __ngx_config_write
+    __ngx_config_write "keepalive_time 10m;"
+    __ngx_config_write "keepalive_timeout 10s;"
+    __ngx_config_write "keepalive_requests 50000;"
+    __ngx_config_write "keepalive_disable msie6;"
+    __ngx_config_write
+    __ngx_config_write "lingering_time 10s;"
+    __ngx_config_write "lingering_timeout 5s;"
+    __ngx_config_write
+    __ngx_config_write "server_tokens off;"
+    __ngx_config_write
+    __ngx_config_write "more_clear_headers 'Server';"
+    __ngx_config_write "more_clear_headers 'X-Powered-By';"
+    __ngx_config_write
+    __ngx_config_write "zstd on;"
+    __ngx_config_write "zstd_static on;"
+    __ngx_config_write "zstd_comp_level 9;"
+    __ngx_config_write "zstd_min_length 256;"
+    __ngx_config_write "zstd_types *;"
+    __ngx_config_write
+    __ngx_config_write "brotli on;"
+    __ngx_config_write "brotli_static on;"
+    __ngx_config_write "brotli_comp_level 6;"
+    __ngx_config_write "brotli_buffers 16 8k;"
+    __ngx_config_write "brotli_min_length 256;"
+    __ngx_config_write "brotli_types *;"
+    __ngx_config_write
+    __ngx_config_write "gzip on;"
+    __ngx_config_write "gzip_static on;"
+    __ngx_config_write "gzip_comp_level 5;"
+    __ngx_config_write "gzip_min_length 256;"
+    __ngx_config_write "gzip_proxied any;"
+    __ngx_config_write "gzip_vary on;"
+    __ngx_config_write "gzip_types *;"
+    __ngx_config_write
+    __ngx_config_write "quic_gso on;"
+    __ngx_config_write "quic_retry on;"
+    __ngx_config_write
+    __ngx_config_write "http2 on;"
+    __ngx_config_write "http3 on;"
+    __ngx_config_write "http3_hq on;"
+    __ngx_config_write
+    __ngx_config_write "ssl_buffer_size 8k;"
+    __ngx_config_write "ssl_conf_command Options 'Compression, KTLS, KTLSTxZerocopySendfile, TxCertificateCompression, RxCertificateCompression';"
+    __ngx_config_write "ssl_ciphers HIGH:!CBC;"
+    __ngx_config_write "ssl_ecdh_curve X25519:x448:secp384r1:secp521r1:sect571r1;"
+    __ngx_config_write "ssl_protocols TLSv1.2 TLSv1.3;"
+    __ngx_config_write "ssl_prefer_server_ciphers on;"
+    __ngx_config_write
+    __ngx_config_write "ssl_early_data on;"
+    __ngx_config_write
+    __ngx_config_write "ssl_ocsp on;"
+    __ngx_config_write "ssl_ocsp_cache shared:OCSP:1m;"
+    __ngx_config_write
+    __ngx_config_write "ssl_stapling on;"
+    __ngx_config_write "ssl_stapling_verify on;"
+    __ngx_config_write
+    __ngx_config_write "ssl_session_tickets on;"
+    __ngx_config_write "ssl_session_cache shared:SESSION:1m;"
+    __ngx_config_write
+    __ngx_config_write "ssl_dyn_rec_enable on;"
+    __ngx_config_write "ssl_dyn_rec_size_hi 4229;"
+    __ngx_config_write "ssl_dyn_rec_size_lo 1369;"
+    __ngx_config_write "ssl_dyn_rec_threshold 40;"
+    __ngx_config_write "ssl_dyn_rec_timeout 1000;"
+    __ngx_config_write
+    __ngx_config_write "resolver 8.8.8.8 1.1.1.1 valid=60s ipv6=off;"
+    __ngx_config_write "resolver_timeout 2s;"
+    __ngx_config_write
+    __ngx_config_write "access_log off;"
+    __ngx_config_write
+    __ngx_config_write "server {"
+    __ngx_config_write "listen 80 default_server deferred fastopen=400 mptcp;"
+    __ngx_config_write "listen [::]:80 default_server deferred fastopen=400 mptcp;"
+    __ngx_config_write "return 444;"
+    __ngx_config_write "}"
+    __ngx_config_write
+    __ngx_config_write "server {"
+    __ngx_config_write "listen 443 default_server deferred fastopen=400 mptcp ssl;"
+    __ngx_config_write "listen [::]:443 default_server deferred fastopen=400 mptcp ssl;"
+    __ngx_config_write "ssl_reject_handshake on;"
+    __ngx_config_write "}"
+    __ngx_config_write
+    __ngx_config_write "include '${www_root}/*.conf';"
+    __ngx_config_write "}"
+    echo -e -n "${__context}" >"${__prefix}/conf/${name}.conf"
+}
 
-mkdir -p "${build_temp}"
-pushd "${build_temp}" >/dev/null
+__ngx_config_server() {
+    local -i __h3_port=8443
+    local -i __level=0
+    local __context __server_name
+    __server_name="${1/./_}"
+    __ngx_config_write "server {"
+    __ngx_config_write "listen 80 mptcp;"
+    __ngx_config_write "listen [::]:80 mptcp;"
+    __ngx_config_write "server_name $1;"
+    __ngx_config_write
+    __ngx_config_write "set \$alt_svc '';"
+    __ngx_config_write
+    __ngx_config_write "if (\$http3 = '') {"
+    __ngx_config_write "set \$alt_svc 'h3=\":${__h3_port}\"; ma=31536000; persist=1';"
+    __ngx_config_write "}"
+    __ngx_config_write
+    __ngx_config_write "add_header Alt-Svc '\$alt_svc' always;"
+    __ngx_config_write
+    __ngx_config_write "return 301 'https://\$host\$request_uri';"
+    __ngx_config_write "}"
+    __ngx_config_write
+    __ngx_config_write "server {"
+    __ngx_config_write "listen 443 mptcp ssl;"
+    __ngx_config_write "listen [::]:443 mptcp ssl;"
+    __ngx_config_write "listen ${__h3_port} quic reuseport;"
+    __ngx_config_write "listen [::]:${__h3_port} quic reuseport;"
+    __ngx_config_write "server_name $1;"
+    __ngx_config_write
+    __ngx_config_write "set \$alt_svc '';"
+    __ngx_config_write
+    __ngx_config_write "if (\$http3 = '') {"
+    __ngx_config_write "set \$alt_svc 'h3=\":${__h3_port}\"; ma=31536000; persist=1';"
+    __ngx_config_write "}"
+    __ngx_config_write
+    __ngx_config_write "add_header Alt-Svc '\$alt_svc' always;"
+    __ngx_config_write
+    __ngx_config_write "add_header Cache-Control 'no-transform' always;"
+    __ngx_config_write "add_header Priority 'u=0, i' always;"
+    __ngx_config_write "add_header Strict-Transport-Security 'max-age=31536000; includeSubDomains; preload' always;"
+    __ngx_config_write "add_header Timing-Allow-Origin '*' always;"
+    __ngx_config_write "add_header X-Content-Type-Options 'nosniff' always;"
+    __ngx_config_write "add_header X-Frame-Options 'SAMEORIGIN' always;"
+    __ngx_config_write "add_header X-XSS-Protection '1; mode=block' always;"
+    __ngx_config_write
+    __ngx_config_write "include '${www_root}/${1}.d/*.conf';"
+    __ngx_config_write
+    __ngx_config_write "access_log logs/${__server_name}.log;"
+    __ngx_config_write "}"
+    echo -e -n "${__context}" >"${www_root}/${__server_name}.conf"
+}
 
-compile_jemalloc
-compile_zlib
-compile_brotli
-compile_zstd
-compile_pcre
-compile_openssl
-compile_ngx
+__ngx_config_test() {
+    local __cert_dir="${__build_temp}/certs"
+    if [[ ! -d ${__cert_dir} ]]; then
+        mkdir -p "${__cert_dir}"
+    fi
+    local __ser_name="localhost"
+    __ngx_config_server "${__ser_name}"
+    __local_cert_gen "${__ser_name}"
+    "${__prefix}/sbin/${name}" -t
+    rm -rf "${www_root}"
+}
 
-popd >/dev/null
+__local_cert_gen() {
+    local __context
+    __write_line "authorityInfoAccess = @ocsp_section"
+    __write_line "basicConstraints = critical, CA:FALSE"
+    __write_line "certificatePolicies = 2.23.140.1.2.1"
+    __write_line "crlDistributionPoints = @crl_section"
+    __write_line "extendedKeyUsage = critical, serverAuth, clientAuth"
+    __write_line "keyUsage = critical, nonRepudiation, digitalSignature, keyEncipherment, keyAgreement"
+    __write_line "subjectAltName = @alt_names"
+    __write_line "subjectKeyIdentifier = hash"
+    __write_line "tlsfeature = status_request"
+    __write_line "[ alt_names ]"
+    __write_line "DNS.1=$1"
+    __write_line "[ crl_section ]"
+    __write_line "URI.0 = http://127.0.0.1/crl"
+    __write_line "[ ocsp_section ]"
+    __write_line "caIssuers;URI.0 = http://127.0.0.1/ca"
+    __write_line "OCSP;URI.0 = http://127.0.0.1/ocsp"
+    local __name="${1/./_}"
+    openssl ecparam -genkey -name secp384r1 -out "${__cert_dir}/ca_ecc.key"
+    openssl req -new -x509 -sha384 -days 1 -subj "/C=US/ST=Test/L=Test/O=Test/CN=Test Root CA" \
+        -key "${__cert_dir}/ca_ecc.key" -out "${__cert_dir}/ca_ecc.crt"
+    openssl ecparam -genkey -name secp384r1 -out "${__cert_dir}/${__name}_ecc.key"
+    openssl req -new -subj "/CN=$1" \
+        -key "${__cert_dir}/${__name}_ecc.key" -out "${__cert_dir}/${__name}_ecc.csr"
+    openssl x509 -req -days 1 -sha384 \
+        -CA "${__cert_dir}/ca_ecc.crt" -CAkey "${__cert_dir}/ca_ecc.key" \
+        -in "${__cert_dir}/${__name}_ecc.csr" -out "${__cert_dir}/${__name}_ecc.crt" \
+        -extfile <(echo -e "${__context}")
+    cat "${__cert_dir}/${__name}_ecc.crt" <(echo) "${__cert_dir}/ca_ecc.crt" >"${__cert_dir}/${__name}_fullchain_ecc.crt"
+    if [[ ! -d "${www_root}/${1}.d" ]]; then
+        mkdir -p "${www_root}/${1}.d"
+    fi
+    echo "ssl_certificate '${__cert_dir}/${__name}_fullchain_ecc.crt';" >>"${www_root}/${1}.d/cert.conf"
+    echo "ssl_certificate_key '${__cert_dir}/${__name}_ecc.key';" >>"${www_root}/${1}.d/cert.conf"
+}
 
-echo "file_name=${COMPRESS_FILE_NAME}" >>"${GITHUB_OUTPUT}"
+ngx_config() {
+    __ngx_config_index
+    find "${__prefix}/conf" -type f -name "*.default" -exec rm -f {} \;
+    mkdir -p "${www_root}"
+}
 
-exit 0
+main() {
+    local WORKSPACE BUILD_HASH BUILD_STEP COMPRESS_FILE_NAME
+    local COMMIT_LIST=()
+
+    if [[ -n ${CI:-} ]]; then
+        WORKSPACE="${GITHUB_WORKSPACE}"
+    else
+        WORKSPACE="$(pwd)"
+    fi
+
+    local prefix_root="/opt"
+    local www_root="${prefix_root}/www"
+
+    if [[ "$(gcc -dumpversion)" != "14" ]]; then
+        while IFS= read -r file; do
+            ln -sf "${file}" "${file%-*}"
+        done < <(find /usr/bin -type l -name "*-14")
+    fi
+
+    build
+
+    if [[ -n ${CI:-} ]]; then
+        echo "build_sha=${BUILD_HASH}" >>"${GITHUB_OUTPUT}"
+        echo "file_name=${COMPRESS_FILE_NAME}" >>"${GITHUB_OUTPUT}"
+    fi
+
+    exit 0
+}
+
+main
