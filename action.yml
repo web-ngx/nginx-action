@@ -1,0 +1,44 @@
+name: Debian Action
+description: Setup an Debian environment
+
+branding:
+  color: purple
+  icon: terminal
+
+inputs:
+  option_arch:
+    description: Set compiler option '-march'
+    required: false
+  option_tune:
+    description: Set compiler option '-mtune'
+    required: false
+  option_mold:
+    description: Enable mold linker
+    required: false
+  deploy_tmp:
+    default: /tmp
+    description: Deploy temporary directories.
+    required: false
+  prefix:
+    description: Install path, defaule is /opt
+    required: false
+
+outputs:
+  file_name:
+    description: File name of resulting .tar.xz file.
+  build_hash:
+    description: All repos SHA256.
+  deploy_script:
+    description: Deploy script.
+  www:
+    description: Web config root directories.
+
+runs:
+  using: docker
+  image: Dockerfile
+  env:
+    option_arch: ${{ inputs.option_arch }}
+    option_tune: ${{ inputs.option_tune }}
+    option_mold: ${{ inputs.option_mold }}
+    deploy_tmp: ${{ inputs.deploy_tmp }}
+    prefix: ${{ inputs.prefix }}

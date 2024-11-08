@@ -1,0 +1,74 @@
+name: test ci
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test Docker Action
+    runs-on: ubuntu-24.04
+
+    env:
+      tmp: /tmp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run action
+        id: build
+        uses: ./
+        with:
+          option_arch: znver2
+          option_tune: znver2
+          deploy_tmp: ${{ env.tmp }}
+
+      - name: Upload nginx
+        uses: actions/upload-artifact@v4
+        with:
+          name: nginx
+          path: ${{ steps.build.outputs.file_name }}
+          compression-level: 9
+
+      - name: Upload deploy script
+        uses: actions/upload-artifact@v4
+        with:
+          name: script
+          path: ${{ steps.build.outputs.deploy_script }}
+          compression-level: 9
+
+      - name: Deploy Nginx via SSH
+        uses: falling42/ssh-deploy@master
+        with:
+          ssh_host: ${{ secrets.SSH_HOST }}
+          ssh_port: ${{ secrets.SSH_PORT }}
+          ssh_user: ${{ secrets.SSH_USER }}
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source_file_path: ${{ steps.build.outputs.file_name }}
+          destination_path: ${{ env.tmp }}
+          execute_remote_script: yes
+          copy_script: yes
+          source_script: ${{ steps.build.outputs.deploy_script }}
+          deploy_script: ${{ env.tmp }}/${{ steps.build.outputs.deploy_script }}
+
+  delete-runs:
+    name: Delete Old Workflow
+    runs-on: ubuntu-24.04
+
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+      - name: Delete workflow runs
+        uses: Mattraks/delete-workflow-runs@main
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          delete_workflow_pattern: test.yml
+          retain_days: 0
+          keep_minimum_runs: 1
+          delete_run_by_conclusion_pattern: cancelled, failure, skipped, success
