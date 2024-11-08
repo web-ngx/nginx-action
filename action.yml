@@ -1,0 +1,16 @@
+name: Debian Action
+description: Setup an Debian environment
+
+branding:
+  color: purple
+  icon: terminal
+
+outputs:
+  file_name:
+    description: File name of resulting .tar.xz file.
+  build_sha:
+    description: Repos SHA256.
+
+runs:
+  using: docker
+  image: Dockerfile
