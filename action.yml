@@ -20,7 +20,7 @@ inputs:
 outputs:
   file_name:
     description: File name of resulting .tar.xz file.
-  build_sha:
+  build_hash:
     description: Repos SHA256.
 
 runs:

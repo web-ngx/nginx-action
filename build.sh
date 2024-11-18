@@ -819,7 +819,7 @@ main() {
     build
 
     if [[ -n ${CI:-} ]]; then
-        echo "build_sha=${BUILD_HASH}" >>"${GITHUB_OUTPUT}"
+        echo "build_hash=${BUILD_HASH}" >>"${GITHUB_OUTPUT}"
         echo "file_name=${COMPRESS_FILE_NAME}" >>"${GITHUB_OUTPUT}"
     fi
 
