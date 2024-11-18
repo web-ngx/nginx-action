@@ -273,10 +273,14 @@ compile_ngx() {
     local name="nginx"
     local __prefix="${prefix_root}/${name}"
     local __pid_path="/run/${name}.pid"
+    local __ngx_bin="${__prefix}/sbin/${name}"
+    local __ngx_conf="${__prefix}/conf/${name}.conf"
+    local __ngx_service="${prefix_root}/${name}.service"
     local __ngx_user="nobody"
     local __ngx_group="nogroup"
     if [[ ! -d ${name} ]]; then
         __git_github "web-ngx/nginx" "modify" ${name}
+        sed -i '/ngx_write_stderr("configure arguments:" NGX_CONFIGURE NGX_LINEFEED);/d' "${name}/src/core/nginx.c"
     fi
     pushd ${name} >/dev/null
     if [[ ${BUILD_STEP} == "PROFILE_USE" ]]; then
@@ -288,14 +292,15 @@ compile_ngx() {
     local __cflags __ldflags
     __cflags="-Ofast"
     __cflags+=" ${CFLAGS}"
-    __cflags+=" -flto=auto -flto-partition=one -ffat-lto-objects"
+    __cflags+=" -flto=auto"
+    __cflags+=" -flto-partition=one"
+    __cflags+=" -ffat-lto-objects"
     __cflags+=" -fweb -fwhole-program"
     __cflags+=" -ffreestanding"
     __cflags+=" -DNGX_HAVE_DLOPEN=0"
     __ldflags="-no-pie"
-    __ldflags+=" -static -static-libgcc -static-libstdc++"
     __ldflags+=" ${LDFLAGS}"
-    sed -i '/ngx_write_stderr("configure arguments:" NGX_CONFIGURE NGX_LINEFEED);/d' src/core/nginx.c
+    __ldflags+=" -Wl,-z,start-stop-visibility=hidden"
     BUILD_HASH="$(__crc "${COMMIT_LIST[*]}")"
     CFLAGS="${__cflags}" ./auto/configure \
         --build="${BUILD_HASH}" \
@@ -326,7 +331,6 @@ compile_ngx() {
         --with-http_ssl_module \
         --with-http_v2_module \
         --with-http_v3_module \
-        --with-ipv6 \
         --with-stream \
         --with-stream_realip_module \
         --with-stream_ssl_module \
@@ -357,7 +361,7 @@ compile_ngx() {
     if [[ ${BUILD_STEP} == "PROFILE_USE" ]]; then
         pushd "${prefix_root}" >/dev/null
         COMPRESS_FILE_NAME="${name}.tar.xz"
-        __compress "${WORKSPACE}/${COMPRESS_FILE_NAME}" "${name}" "ssl"
+        __compress "${WORKSPACE}/${COMPRESS_FILE_NAME}" "${name}" "ssl" "${name}.service"
         popd >/dev/null
     fi
 }
@@ -378,7 +382,11 @@ __compile_flags() {
     __cflags+=" -mtls-dialect=gnu2"
     __cflags+=" -maccumulate-outgoing-args -mno-push-args"
     __cflags+=" -mno-red-zone"
-    __cflags+=" -Wa,-O2,-momit-lock-prefix=yes,-no-pad-sections,--noexecstack,--strip-local-absolute"
+    __cflags+=" -Wa,-O2"
+    __cflags+=",-momit-lock-prefix=yes"
+    __cflags+=",-no-pad-sections"
+    __cflags+=",--64"
+    __cflags+=",--strip-local-absolute"
     __cflags+=" -fgcse -fgcse-lm -fgcse-sm -fgcse-las -fgcse-after-reload"
     __cflags+=" -fmodulo-sched -fmodulo-sched-allow-regmoves"
     __cflags+=" -fexcess-precision=fast"
@@ -413,9 +421,11 @@ __compile_flags() {
     __cflags+=" -fno-printf-return-value"
     __cflags+=" -fno-plt"
     __cflags+=" -fno-sanitize=all"
+    __cflags+=" -fopenmp -fopenmp-simd"
     __cflags+=" -U_FORTIFY_SOURCE"
     __cflags+=" --param gcse-unrestricted-cost=0 --param max-gcse-memory=2147483647"
     __cflags+=" --param max-variable-expansions-in-unroller=100"
+    __cxxflags+=" ${__cflags}"
     __cxxflags+=" -fsection-anchors"
     __cxxflags+=" -fvisibility-inlines-hidden"
     __cxxflags+=" -fno-rtti"
@@ -427,26 +437,27 @@ __compile_flags() {
     __ldflags+=" -Wl,-O2"
     __ldflags+=",--strip-all,--discard-all"
     __ldflags+=",--as-needed"
-    __ldflags+=",--exclude-libs=ALL"
     __ldflags+=",--gc-sections"
+    __ldflags+=",--build-id=none"
     __ldflags+=",--hash-style=gnu"
-    __ldflags+=",--sort-common"
-    __ldflags+=",--sort-section,alignment"
     __ldflags+=",--no-eh-frame-hdr"
+    __ldflags+=",--no-undefined"
     if [[ -z ${option_mold} ]]; then
+        __ldflags+=",--relax"
+        __ldflags+=",--demangle"
+        __ldflags+=",--sort-common=ascending"
+        __ldflags+=",--sort-section,alignment"
         __ldflags+=",--no-ctf-variables"
         __ldflags+=",--no-ld-generated-unwind-info"
+        __ldflags+=",--no-warn-execstack"
+        __ldflags+=",--no-warn-rwx-segments"
+        __ldflags+=",--no-whole-archive"
+        __ldflags+=",-z,combreloc"
+        __ldflags+=",-z,noextern-protected-data"
+        __ldflags+=",-z,x86-64-v2"
     fi
-    __ldflags+=",--no-undefined"
-    __ldflags+=",--no-whole-archive"
-    __ldflags+=",-z,start-stop-visibility=hidden"
-    __ldflags+=",-z,combreloc"
-    if [[ ${BUILD_STEP} == "PROFILE_USE" ]]; then
-        __ldflags+=",-z,nodelete"
-        __ldflags+=",-z,nodlopen"
-        __ldflags+=",-z,nodump"
-    fi
-    __ldflags+=",-z,noseparate-code"
+    __ldflags+=",-z,nocommon"
+    __ldflags+=",-z,nodump"
 }
 
 compile() {
@@ -457,14 +468,17 @@ compile() {
         mkdir -p "${__build_temp}"
     fi
     pushd "${__build_temp}" >/dev/null
-    local __cflags __cxxflags __ldflags __libs
-    __cflags+="${CFLAGS}"
-    __cxxflags+="${CXXFLAGS}"
-    __ldflags+="${LDFLAGS}"
+    local __cflags __cxxflags __ldflags
     __compile_flags
-    __cflags="$(echo "${__cflags} -I\"${__install_dir}/include\"" | sed -E 's/^\s+|\s+$//g')"
-    __cxxflags="$(echo "${__cxxflags} -I\"${__install_dir}/include\"" | sed -E 's/^\s+|\s+$//g')"
-    __ldflags="$(echo "${__ldflags} -L\"${__install_dir}/lib\"" | sed -E 's/^\s+|\s+$//g')"
+    __cflags+=" ${CFLAGS}"
+    __cxxflags+=" ${CXXFLAGS}"
+    __ldflags+=" ${LDFLAGS}"
+    __cflags+=" -I\"${__install_dir}/include\""
+    __cxxflags+=" -I\"${__install_dir}/include\""
+    __ldflags+=" -L\"${__install_dir}/lib\""
+    __cflags="$(echo "${__cflags}" | sed -E 's/^\s+|\s+$//g')"
+    __cxxflags="$(echo "${__cxxflags}" | sed -E 's/^\s+|\s+$//g')"
+    __ldflags="$(echo "${__ldflags}" | sed -E 's/^\s+|\s+$//g')"
     CFLAGS="${__cflags}" CXXFLAGS="${__cxxflags}" LDFLAGS="${__ldflags}" compile_jemalloc
     CFLAGS="${__cflags}" CXXFLAGS="${__cxxflags}" LDFLAGS="${__ldflags}" compile_zlib
     CFLAGS="${__cflags}" CXXFLAGS="${__cxxflags}" LDFLAGS="${__ldflags}" compile_brotli
@@ -477,6 +491,7 @@ compile() {
 
 build() {
     local CFLAGS CXXFLAGS LDFLAGS
+    local __cflags __ldflags
     local __profile_dir="/tmp/profile"
     local __build_temp="/tmp/build"
     local __install_dir="${__build_temp}/install"
@@ -485,18 +500,17 @@ build() {
             if [[ -d ${__profile_dir} ]]; then
                 rm -rf "${__profile_dir}"
             fi
-            CFLAGS+=" -fprofile-generate=${__profile_dir}"
-            CXXFLAGS+=" -fprofile-generate=${__profile_dir}"
-            LDFLAGS+=" -fprofile-generate=${__profile_dir}"
-            CFLAGS="${CFLAGS}" CXXFLAGS="${CXXFLAGS}" LDFLAGS="${LDFLAGS}" compile
+            __cflags="-fprofile-generate=${__profile_dir}"
+            __ldflags="-lgcov"
+            CFLAGS="${__cflags}" CXXFLAGS="${__cflags}" LDFLAGS="${__ldflags}" compile
+            rm -rf "${__install_dir}"
             BUILD_STEP="PROFILE_USE" build
             ;;
         "PROFILE_USE")
-            rm -rf "${__install_dir}"
-            CFLAGS+=" -fprofile-use=${__profile_dir} -fprofile-correction -Wno-coverage-mismatch -Wno-missing-profile"
-            CXXFLAGS+=" -fprofile-use=${__profile_dir} -fprofile-correction -Wno-coverage-mismatch -Wno-missing-profile"
-            LDFLAGS+=" -fprofile-use=${__profile_dir} -fprofile-correction -Wno-coverage-mismatch -Wno-missing-profile"
-            CFLAGS="${CFLAGS}" CXXFLAGS="${CXXFLAGS}" LDFLAGS="${LDFLAGS}" compile
+            __cflags="-fprofile-use=${__profile_dir} -fprofile-correction"
+            __cflags+=" -Wno-coverage-mismatch -Wno-missing-profile"
+            __ldflags=""
+            CFLAGS="${__cflags}" CXXFLAGS="${__cflags}" LDFLAGS="${__ldflags}" compile
             ;;
         *)
             BUILD_STEP="PROFILE_GEN" build
@@ -527,6 +541,30 @@ __ngx_config_write() {
     fi
 }
 
+__ngx_config_service() {
+    local -i __level=0
+    local __context
+    __write_line "[Unit]"
+    __write_line "Description=The ${name} HTTP and reverse proxy server"
+    __write_line "After=network-online.target remote-fs.target nss-lookup.target"
+    __write_line "Wants=network-online.target"
+    __write_line
+    __write_line "[Service]"
+    __write_line "Type=forking"
+    __write_line "PIDFile=${__pid_path}"
+    __write_line "ExecStartPre=${__ngx_bin} -t -q -c '${__ngx_conf}' -g 'daemon on; master_process on;'"
+    __write_line "ExecStart=${__ngx_bin} -c '${__ngx_conf}' -g 'daemon on; master_process on;'"
+    __write_line "ExecReload=${__ngx_bin} -c '${__ngx_conf}' -g 'daemon on; master_process on;' -s reload"
+    __write_line "ExecStop=-/sbin/start-stop-daemon --quiet --stop --retry QUIT/5 --pidfile '${__pid_path}'"
+    __write_line "PrivateTmp=true"
+    __write_line "TimeoutStopSec=5"
+    __write_line "KillMode=mixed"
+    __write_line
+    __write_line "[Install]"
+    __write_line "WantedBy=multi-user.target"
+    echo -e -n "${__context}" >"${__ngx_service}"
+}
+
 __ngx_config_index() {
     local -i __level=0
     local __context
@@ -545,7 +583,7 @@ __ngx_config_index() {
     __ngx_config_write "error_log logs/error.log emerg;"
     __ngx_config_write
     __ngx_config_write "pcre_jit on;"
-    __ngx_config_write "quic_bpf on;"
+    #__ngx_config_write "quic_bpf on;"
     __ngx_config_write
     __ngx_config_write "timer_resolution 500ms;"
     __ngx_config_write
@@ -692,7 +730,7 @@ __ngx_config_index() {
 }
 
 __ngx_config_server() {
-    local -i __h3_port=8443
+    local -i __h3_port=443
     local -i __level=0
     local __context __server_name
     __server_name="${1/./_}"
@@ -750,7 +788,23 @@ __ngx_config_test() {
     local __ser_name="localhost"
     __ngx_config_server "${__ser_name}"
     __local_cert_gen "${__ser_name}"
-    "${__prefix}/sbin/${name}" -t
+    "${__ngx_bin}" -t -q -c "${__ngx_conf}" -g 'daemon on; master_process on;'
+    "${__ngx_bin}" -c "${__ngx_conf}" -g 'daemon on; master_process on;' &
+    sleep 2
+    curl -kL "http://${__ser_name}" >/dev/null
+    curl -kL --http1.0 "http://${__ser_name}" >/dev/null
+    curl -kL --http1.1 "http://${__ser_name}" >/dev/null
+    curl -kL --http2 "http://${__ser_name}" >/dev/null
+    curl -kL --http2-prior-knowledge "http://${__ser_name}" >/dev/null
+    curl -kL --http3 "https://${__ser_name}" >/dev/null
+    curl -kL --http3-only "https://${__ser_name}" >/dev/null
+    curl -kL --compressed "http://${__ser_name}" >/dev/null
+    curl -kL --mptcp "http://${__ser_name}" >/dev/null
+    curl -kL --tls-earlydata "http://${__ser_name}" >/dev/null
+    curl -kL --tcp-fastopen "http://${__ser_name}" >/dev/null
+    curl -kL --tcp-nodelay "http://${__ser_name}" >/dev/null
+    "${__ngx_bin}" -c "${__ngx_conf}" -g 'daemon on; master_process on;' -s reload
+    start-stop-daemon --quiet --stop --retry QUIT/5 --pidfile "${__pid_path}"
     rm -rf "${www_root}"
 }
 
@@ -793,6 +847,7 @@ __local_cert_gen() {
 
 ngx_config() {
     __ngx_config_index
+    __ngx_config_service
     find "${__prefix}/conf" -type f -name "*.default" -exec rm -f {} \;
     mkdir -p "${www_root}"
 }
