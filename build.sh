@@ -377,10 +377,10 @@ __compile_flags() {
     local option_mold="${option_mold:-}"
     if [[ ${BUILD_STEP} == "PROFILE_USE" ]]; then
         if [[ -n ${option_arch} ]]; then
-            CFLAGS+=" -march=${option_arch}"
+            __cflags+=" -march=${option_arch}"
         fi
         if [[ -n ${option_tune} ]]; then
-            CFLAGS+=" -mtune=${option_tune}"
+            __cflags+=" -mtune=${option_tune}"
         fi
     fi
     __cflags+=" -mtls-dialect=gnu2"
