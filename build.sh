@@ -603,7 +603,9 @@ __ngx_config_index() {
     __ngx_config_write "error_log logs/error.log emerg;"
     __ngx_config_write
     __ngx_config_write "pcre_jit on;"
-    #__ngx_config_write "quic_bpf on;"
+    if [[ ${BUILD_STEP} == "PROFILE_USE" ]]; then
+        __ngx_config_write "quic_bpf on;"
+    fi
     __ngx_config_write
     __ngx_config_write "timer_resolution 500ms;"
     __ngx_config_write
