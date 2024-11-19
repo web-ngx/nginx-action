@@ -173,6 +173,10 @@ compile_openssl() {
     if [[ -f "Makefile" ]]; then
         make clean
     fi
+    local __openssldir="${prefix_root}/ssl"
+    if [[ -d ${__openssldir} ]]; then
+        rm -rf "${__openssldir}"
+    fi
     local __cflags
     __cflags="-Ofast -std=gnu17"
     __cflags+=" ${CFLAGS}"
@@ -183,7 +187,7 @@ compile_openssl() {
         -static \
         --prefix="${__install_dir}" \
         --libdir=lib \
-        --openssldir="${prefix_root}/ssl" \
+        --openssldir="${__openssldir}" \
         --release \
         --api=3.0.0 no-deprecated \
         enable-ec_nistp_64_gcc_128 \
@@ -223,6 +227,7 @@ compile_openssl() {
     perl configdata.pm --dump
     make -j "$(nproc)"
     make install
+    find "${__openssldir}" -type f -name "*.dist" -exec rm -f {} \;
     popd >/dev/null
 }
 
