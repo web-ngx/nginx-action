@@ -12,6 +12,9 @@ inputs:
   option_tune:
     description: Set compiler option '-mtune'
     required: false
+  option_mold:
+    description: Enable mold linker
+    required: false
 
 outputs:
   file_name:
@@ -25,3 +28,4 @@ runs:
   env:
     option_arch: ${{ inputs.option_arch }}
     option_tune: ${{ inputs.option_tune }}
+    option_mold: ${{ inputs.option_mold }}

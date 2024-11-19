@@ -454,6 +454,14 @@ __compile_flags() {
     __ldflags+=",--hash-style=gnu"
     __ldflags+=",--no-eh-frame-hdr"
     __ldflags+=",--no-undefined"
+    if [[ -n ${option_mold} ]]; then
+        __ldflags+=",--icf=all"
+        __ldflags+=",--ignore-data-address-equality"
+        __ldflags+=",--relocatable-merge-sections"
+        __ldflags+=",-z,nokeep-text-section-prefix"
+        __ldflags+=",-z,nosectionheader"
+        __ldflags+=",-z,rewrite-endbr"
+    fi
     if [[ -z ${option_mold} ]]; then
         __ldflags+=",--relax"
         __ldflags+=",--demangle"
@@ -465,10 +473,10 @@ __compile_flags() {
         __ldflags+=",--no-warn-rwx-segments"
         __ldflags+=",--no-whole-archive"
         __ldflags+=",-z,combreloc"
+        __ldflags+=",-z,nocommon"
         __ldflags+=",-z,noextern-protected-data"
         __ldflags+=",-z,x86-64-v2"
     fi
-    __ldflags+=",-z,nocommon"
     __ldflags+=",-z,nodump"
 }
 
