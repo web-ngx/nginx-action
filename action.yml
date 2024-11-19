@@ -12,10 +12,6 @@ inputs:
   option_tune:
     description: Set compiler option '-mtune'
     required: false
-  option_openmp:
-    default: false
-    description: Use OpenMP
-    required: false
 
 outputs:
   file_name:
@@ -29,4 +25,3 @@ runs:
   env:
     option_arch: ${{ inputs.option_arch }}
     option_tune: ${{ inputs.option_tune }}
-    option_openmp: ${{ inputs.option_openmp }}

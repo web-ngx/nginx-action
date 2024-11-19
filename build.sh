@@ -374,7 +374,6 @@ compile_ngx() {
 __compile_flags() {
     local option_arch="${option_arch:-}"
     local option_tune="${option_tune:-}"
-    local option_openmp="${option_openmp:-}"
     local option_mold="${option_mold:-}"
     if [[ ${BUILD_STEP} == "PROFILE_USE" ]]; then
         if [[ -n ${option_arch} ]]; then
