@@ -475,6 +475,7 @@ __compile_flags() {
         __ldflags+=",-z,combreloc"
         __ldflags+=",-z,nocommon"
         __ldflags+=",-z,noextern-protected-data"
+        __ldflags+=",-z,pack-relative-relocs"
         __ldflags+=",-z,x86-64-v2"
     fi
     __ldflags+=",-z,nodump"
