@@ -11,6 +11,9 @@ jobs:
     name: Test Docker Action
     runs-on: ubuntu-24.04
 
+    env:
+      tmp: /tmp
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,6 +24,7 @@ jobs:
         with:
           option_arch: znver2
           option_tune: znver2
+          deploy_tmp: ${{ env.tmp }}
 
       - name: Upload nginx
         uses: actions/upload-artifact@v4
@@ -44,12 +48,12 @@ jobs:
           ssh_user: ${{ secrets.SSH_USER }}
           ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
           source_file_path: ${{ steps.build.outputs.file_name }}
-          destination_path: /tmp
+          destination_path: ${{ env.tmp }}
           execute_remote_script: yes
           copy_script: yes
           source_script: ${{ steps.build.outputs.deploy_script }}
-          deploy_script: /tmp/${{ steps.build.outputs.deploy_script }}
-  
+          deploy_script: ${{ env.tmp }}/${{ steps.build.outputs.deploy_script }}
+
   delete-runs:
     name: Delete Old Workflow
     runs-on: ubuntu-24.04

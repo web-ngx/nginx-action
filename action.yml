@@ -15,6 +15,10 @@ inputs:
   option_mold:
     description: Enable mold linker
     required: false
+  deploy_tmp:
+    default: /tmp
+    description: Deploy temporary directories.
+    required: false
   prefix:
     description: Install path, defaule is /opt
     required: false
@@ -34,4 +38,5 @@ runs:
     option_arch: ${{ inputs.option_arch }}
     option_tune: ${{ inputs.option_tune }}
     option_mold: ${{ inputs.option_mold }}
+    deploy_tmp: ${{ inputs.deploy_tmp }}
     prefix: ${{ inputs.prefix }}

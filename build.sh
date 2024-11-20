@@ -881,13 +881,17 @@ ngx_config() {
 gen_deploy_script() {
     local -i __level=0
     local __context
+    local deploy_tmp="${deploy_tmp:-}"
+    if [[ -n "${deploy_tmp}" ]]; then
+        deploy_tmp+="/"
+    fi
     __write_line "#!/bin/bash"
     __write_line
     __write_line "if [[ -f \"${__ngx_bin}\" ]]; then"
     __write_line "    mv \"${__ngx_bin}\" \"${__ngx_bin}.old\""
     __write_line "fi"
     __write_line
-    __write_line "tar -xf \"${COMPRESS_FILE_NAME}\" -C \"${prefix_root}\""
+    __write_line "tar -xf \"${deploy_tmp}${COMPRESS_FILE_NAME}\" -C \"${prefix_root}\""
     __write_line "mv -f \"${__ngx_service}\" \"/usr/lib/systemd/system/${__ngx_service_name}\""
     __write_line "ln -sf \"${__ngx_bin}\" \"/usr/local/bin/${name}\""
     __write_line
@@ -897,7 +901,7 @@ gen_deploy_script() {
     __write_line "    systemctl reenable ${__ngx_service_name}"
     __write_line "fi"
     __write_line
-    __write_line "if [[ \"\$(pgrep ${name})\" != \"\" ]]; then"
+    __write_line "if ((\$(pgrep -c \"${name}\") > 0)); then"
     __write_line "    kill -USR2 \$(cat ${__pid_path})"
     __write_line "    sleep 2"
     __write_line "    if [[ -f \"${__pid_path}.oldbin\" ]]; then"
@@ -909,7 +913,7 @@ gen_deploy_script() {
     __write_line "fi"
     __write_line
     __write_line "rm -f \"${__ngx_bin}.old\""
-    __write_line "rm -f \"${COMPRESS_FILE_NAME}\""
+    __write_line "rm -f \"${deploy_tmp}${COMPRESS_FILE_NAME}\""
     __write_line "rm -f \"\$(realpath \$0)\""
     local __script="deploy_${name}.sh"
     echo -e -n "${__context}" >"${WORKSPACE}/${__script}"
