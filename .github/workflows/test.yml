@@ -36,6 +36,20 @@ jobs:
           path: ${{ steps.build.outputs.deploy_script }}
           compression-level: 9
 
+      - name: Deploy Nginx via SSH
+        uses: falling42/ssh-deploy@master
+        with:
+          ssh_host: ${{ secrets.SSH_HOST }}
+          ssh_port: ${{ secrets.SSH_PORT }}
+          ssh_user: ${{ secrets.SSH_USER }}
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source_file_path: ${{ steps.build.outputs.file_name }}
+          destination_path: /tmp
+          execute_remote_script: yes
+          copy_script: yes
+          source_script: ${{ steps.build.outputs.deploy_script }}
+          deploy_script: /tmp/${{ steps.build.outputs.deploy_script }}
+  
   delete-runs:
     name: Delete Old Workflow
     runs-on: ubuntu-24.04
