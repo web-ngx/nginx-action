@@ -662,8 +662,8 @@ __ngx_config_index() {
     __ngx_config_write "client_body_timeout 5s;"
     __ngx_config_write "client_header_buffer_size 8k;"
     __ngx_config_write "client_header_timeout 5s;"
-    __ngx_config_write "client_max_body_size 1024m;"
-    __ngx_config_write "large_client_header_buffers 4 32k;"
+    __ngx_config_write "client_max_body_size 16k;"
+    __ngx_config_write "large_client_header_buffers 4 256k;"
     __ngx_config_write
     __ngx_config_write "postpone_output 0;"
     __ngx_config_write
