@@ -895,6 +895,10 @@ gen_deploy_script() {
     __write_line "mv -f \"${__ngx_service}\" \"/usr/lib/systemd/system/${__ngx_service_name}\""
     __write_line "ln -sf \"${__ngx_bin}\" \"/usr/local/bin/${name}\""
     __write_line
+    __write_line "if [[ ! -d \"${www_root}\" ]]; then"
+    __write_line "    mkdir -p \"${www_root}\""
+    __write_line "fi"
+    __write_line
     __write_line "if [[ \"\$(systemctl is-enabled ${__ngx_service_name})\" == \"disabled\" ]]; then"
     __write_line "    systemctl enable ${__ngx_service_name}"
     __write_line "else"
@@ -945,8 +949,11 @@ main() {
     build
 
     if [[ -n ${IS_CI} ]]; then
-        echo "build_hash=${BUILD_HASH}" >>"${GITHUB_OUTPUT}"
-        echo "file_name=${COMPRESS_FILE_NAME}" >>"${GITHUB_OUTPUT}"
+        {
+            echo "build_hash=${BUILD_HASH}"
+            echo "file_name=${COMPRESS_FILE_NAME}"
+            echo "www=${www_root}"
+        } >>"${GITHUB_OUTPUT}"
     fi
 
     exit 0

@@ -30,6 +30,8 @@ outputs:
     description: All repos SHA256.
   deploy_script:
     description: Deploy script.
+  www:
+    description: Web config root directories.
 
 runs:
   using: docker
