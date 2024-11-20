@@ -280,7 +280,8 @@ compile_ngx() {
     local __pid_path="/run/${name}.pid"
     local __ngx_bin="${__prefix}/sbin/${name}"
     local __ngx_conf="${__prefix}/conf/${name}.conf"
-    local __ngx_service="${prefix_root}/${name}.service"
+    local __ngx_service_name="${name}.service"
+    local __ngx_service="${prefix_root}/${__ngx_service_name}"
     local __ngx_user="nobody"
     local __ngx_group="nogroup"
     if [[ ! -d ${name} ]]; then
@@ -368,6 +369,7 @@ compile_ngx() {
         COMPRESS_FILE_NAME="${name}.tar.xz"
         __compress "${WORKSPACE}/${COMPRESS_FILE_NAME}" "${name}" "ssl" "${name}.service"
         popd >/dev/null
+        gen_deploy_script
     fi
 }
 
@@ -832,6 +834,7 @@ __ngx_config_test() {
 }
 
 __local_cert_gen() {
+    local -i __level=0
     local __context
     __write_line "authorityInfoAccess = @ocsp_section"
     __write_line "basicConstraints = critical, CA:FALSE"
@@ -875,17 +878,58 @@ ngx_config() {
     mkdir -p "${www_root}"
 }
 
+gen_deploy_script() {
+    local -i __level=0
+    local __context
+    __write_line "#!/bin/bash"
+    __write_line
+    __write_line "if [[ -f \"${__ngx_bin}\" ]]; then"
+    __write_line "    mv \"${__ngx_bin}\" \"${__ngx_bin}.old\""
+    __write_line "fi"
+    __write_line
+    __write_line "tar -xf \"${COMPRESS_FILE_NAME}\" -C \"${prefix_root}\""
+    __write_line "mv -f \"${__ngx_service}\" \"/usr/lib/systemd/system/${__ngx_service_name}\""
+    __write_line "ln -sf \"${__ngx_bin}\" \"/usr/local/bin/${name}\""
+    __write_line
+    __write_line "if [[ \"\$(systemctl is-enabled ${__ngx_service_name})\" == \"disabled\" ]]; then"
+    __write_line "    systemctl enable ${__ngx_service_name}"
+    __write_line "else"
+    __write_line "    systemctl reenable ${__ngx_service_name}"
+    __write_line "fi"
+    __write_line
+    __write_line "if [[ \"\$(pgrep ${name})\" != \"\" ]]; then"
+    __write_line "    kill -USR2 \$(cat ${__pid_path})"
+    __write_line "    sleep 2"
+    __write_line "    if [[ -f \"${__pid_path}.oldbin\" ]]; then"
+    __write_line "        kill -QUIT \$(cat \"${__pid_path}.oldbin\")"
+    __write_line "        rm -f \"${__pid_path}.oldbin\""
+    __write_line "    fi"
+    __write_line "else"
+    __write_line "    systemctl start ${__ngx_service_name}"
+    __write_line "fi"
+    __write_line
+    __write_line "rm -f \"${__ngx_bin}.old\""
+    __write_line "rm -f \"${COMPRESS_FILE_NAME}\""
+    __write_line "rm -f \"\$(realpath \$0)\""
+    local __script="deploy_${name}.sh"
+    echo -e -n "${__context}" >"${WORKSPACE}/${__script}"
+    if [[ -n ${IS_CI} ]]; then
+        echo "deploy_script=${__script}" >>"${GITHUB_OUTPUT}"
+    fi
+}
+
 main() {
     local WORKSPACE BUILD_HASH BUILD_STEP COMPRESS_FILE_NAME
     local COMMIT_LIST=()
+    local IS_CI="${CI:-}"
 
-    if [[ -n ${CI:-} ]]; then
+    if [[ -n ${IS_CI} ]]; then
         WORKSPACE="${GITHUB_WORKSPACE}"
     else
         WORKSPACE="$(pwd)"
     fi
 
-    local prefix_root="/opt"
+    local prefix_root="${prefix:-/opt}"
     local www_root="${prefix_root}/www"
 
     if [[ "$(gcc -dumpversion)" != "14" ]]; then
@@ -896,7 +940,7 @@ main() {
 
     build
 
-    if [[ -n ${CI:-} ]]; then
+    if [[ -n ${IS_CI} ]]; then
         echo "build_hash=${BUILD_HASH}" >>"${GITHUB_OUTPUT}"
         echo "file_name=${COMPRESS_FILE_NAME}" >>"${GITHUB_OUTPUT}"
     fi

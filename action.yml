@@ -15,12 +15,17 @@ inputs:
   option_mold:
     description: Enable mold linker
     required: false
+  prefix:
+    description: Install path, defaule is /opt
+    required: false
 
 outputs:
   file_name:
     description: File name of resulting .tar.xz file.
   build_hash:
-    description: Repos SHA256.
+    description: All repos SHA256.
+  deploy_script:
+    description: Deploy script.
 
 runs:
   using: docker
@@ -29,3 +34,4 @@ runs:
     option_arch: ${{ inputs.option_arch }}
     option_tune: ${{ inputs.option_tune }}
     option_mold: ${{ inputs.option_mold }}
+    prefix: ${{ inputs.prefix }}
