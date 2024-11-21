@@ -738,14 +738,16 @@ __ngx_config_index() {
     __ngx_config_write "access_log off;"
     __ngx_config_write
     __ngx_config_write "server {"
-    __ngx_config_write "listen 80 default_server deferred fastopen=400 mptcp;"
-    __ngx_config_write "listen [::]:80 default_server deferred fastopen=400 mptcp;"
+    __ngx_config_write "listen 80 deferred reuseport fastopen=3 default_server;"
+    __ngx_config_write "listen [::]:80 deferred reuseport fastopen=3 default_server;"
     __ngx_config_write "return 444;"
     __ngx_config_write "}"
     __ngx_config_write
     __ngx_config_write "server {"
-    __ngx_config_write "listen 443 default_server deferred fastopen=400 mptcp ssl;"
-    __ngx_config_write "listen [::]:443 default_server deferred fastopen=400 mptcp ssl;"
+    __ngx_config_write "listen 443 quic reuseport default_server;"
+    __ngx_config_write "listen 443 deferred ssl reuseport fastopen=3 default_server;"
+    __ngx_config_write "listen [::]:443 quic reuseport default_server;"
+    __ngx_config_write "listen [::]:443 deferred ssl reuseport fastopen=3 default_server;"
     __ngx_config_write "ssl_reject_handshake on;"
     __ngx_config_write "}"
     __ngx_config_write
@@ -760,8 +762,8 @@ __ngx_config_server() {
     local __context __server_name
     __server_name="${1/./_}"
     __ngx_config_write "server {"
-    __ngx_config_write "listen 80 mptcp;"
-    __ngx_config_write "listen [::]:80 mptcp;"
+    __ngx_config_write "listen 80;"
+    __ngx_config_write "listen [::]:80;"
     __ngx_config_write "server_name $1;"
     __ngx_config_write
     __ngx_config_write "set \$alt_svc '';"
@@ -776,10 +778,10 @@ __ngx_config_server() {
     __ngx_config_write "}"
     __ngx_config_write
     __ngx_config_write "server {"
-    __ngx_config_write "listen 443 mptcp ssl;"
-    __ngx_config_write "listen [::]:443 mptcp ssl;"
-    __ngx_config_write "listen ${__h3_port} quic reuseport;"
-    __ngx_config_write "listen [::]:${__h3_port} quic reuseport;"
+    __ngx_config_write "listen 443 ssl;"
+    __ngx_config_write "listen [::]:443 ssl;"
+    __ngx_config_write "listen ${__h3_port} quic;"
+    __ngx_config_write "listen [::]:${__h3_port} quic;"
     __ngx_config_write "server_name $1;"
     __ngx_config_write
     __ngx_config_write "set \$alt_svc '';"
