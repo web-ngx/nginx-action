@@ -175,6 +175,9 @@ compile_openssl() {
     __cflags+=" ${CFLAGS}"
     __cflags+=" -Wno-stringop-overflow"
     __cflags+=" -DOPENSSL_TLS_SECURITY_LEVEL=3"
+    __cflags+=" -DSSL_OP_CLEANSE_PLAINTEXT=1"
+    __cflags+=" -DSSL_OP_ENABLE_KTLS=1"
+    __cflags+=" -DSSL_OP_ENABLE_KTLS_TX_ZEROCOPY_SENDFILE=1"
     __cflags+=" -UDSO_DLFCN"
     CFLAGS="${__cflags}" ./config \
         -static \
@@ -742,7 +745,6 @@ __ngx_config_index() {
     __ngx_config_write "http3_hq on;"
     __ngx_config_write
     __ngx_config_write "ssl_buffer_size 4k;"
-    __ngx_config_write "ssl_conf_command Options 'Compression, KTLS, KTLSTxZerocopySendfile, TxCertificateCompression, RxCertificateCompression';"
     __ngx_config_write "ssl_ciphers HIGH:!CBC;"
     __ngx_config_write "ssl_ecdh_curve X25519:x448:secp384r1:secp521r1:sect571r1;"
     __ngx_config_write "ssl_protocols TLSv1.2 TLSv1.3;"
