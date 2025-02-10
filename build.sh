@@ -691,14 +691,16 @@ __ngx_config_index() {
     __ngx_config_write "types_hash_bucket_size 128;"
     __ngx_config_write "variables_hash_max_size 2048;"
     __ngx_config_write "variables_hash_bucket_size 128;"
-    __ngx_config_write "output_buffers 8 256k;"
+    __ngx_config_write "output_buffers 1 256k;"
     __ngx_config_write
-    __ngx_config_write "client_body_buffer_size 32k;"
-    __ngx_config_write "client_body_timeout 5s;"
-    __ngx_config_write "client_header_buffer_size 8k;"
-    __ngx_config_write "client_header_timeout 5s;"
-    __ngx_config_write "client_max_body_size 16k;"
-    __ngx_config_write "large_client_header_buffers 4 256k;"
+    __ngx_config_write "client_body_buffer_size 128k;"
+    __ngx_config_write "client_body_timeout 3s;"
+    __ngx_config_write "client_header_buffer_size 16k;"
+    __ngx_config_write "client_header_timeout 3s;"
+    __ngx_config_write "client_max_body_size 0;"
+    __ngx_config_write "large_client_header_buffers 4 32k;"
+    __ngx_config_write
+    __ngx_config_write "http3_stream_buffer_size 512k;"
     __ngx_config_write
     __ngx_config_write "postpone_output 0;"
     __ngx_config_write
@@ -744,9 +746,9 @@ __ngx_config_index() {
     __ngx_config_write "http3 on;"
     __ngx_config_write "http3_hq on;"
     __ngx_config_write
-    __ngx_config_write "ssl_buffer_size 4k;"
+    __ngx_config_write "ssl_buffer_size 512;"
     __ngx_config_write "ssl_ciphers HIGH:!CBC;"
-    __ngx_config_write "ssl_ecdh_curve X25519:x448:secp384r1:secp521r1:sect571r1;"
+    __ngx_config_write "ssl_ecdh_curve X25519:x448:secp384r1:secp521r1;"
     __ngx_config_write "ssl_protocols TLSv1.2 TLSv1.3;"
     __ngx_config_write "ssl_prefer_server_ciphers on;"
     __ngx_config_write
