@@ -318,7 +318,6 @@ compile_ngx() {
         --http-scgi-temp-path="tmp/scgi" \
         --http-uwsgi-temp-path="tmp/uwsgi" \
         --with-ld-opt="${__ldflags}" \
-        --with-compat \
         --with-file-aio \
         --with-threads \
         --with-http_addition_module \
